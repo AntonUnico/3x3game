@@ -1,0 +1,340 @@
+```html
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Игра 3x3</title>
+<style>
+/* Стили для контейнера игры */
+.game-container {
+width: 450px;
+margin: 20px auto;
+font-family: Arial, sans-serif;
+}
+
+/* Сетка 3x3 с дополнительным столбцом/строкой для заголовков */
+.grid {
+display: grid;
+grid-template-columns: 120px 100px 100px 100px;
+gap: 5px;
+}
+
+/* Общие стили для ячеек */
+.cell {
+width: 100px;
+height: 100px;
+border: 1px solid #ccc;
+display: flex;
+align-items: center;
+justify-content: center;
+text-align: center;
+padding: 5px;
+position: relative;
+}
+
+/* Стили для заголовков категорий */
+.header {
+background-color: #f0f0f0;
+font-weight: bold;
+}
+
+/* Стили для полей ввода */
+.input-cell {
+width: 90%;
+height: 90%;
+border: none;
+text-align: center;
+}
+
+/* Стили для кнопок и выпадающего меню */
+.check-button, .mode-select, .new-game-button {
+margin: 10px 0;
+padding: 10px 20px;
+background-color: #4CAF50;
+color: white;
+border: none;
+cursor: pointer;
+}
+
+.check-button:hover, .mode-select:hover, .new-game-button:hover {
+background-color: #45a049;
+}
+
+/* Стили для выпадающего списка подсказок */
+.suggestions {
+position: absolute;
+top: 100%;
+left: 0;
+width: 100%;
+background: white;
+border: 1px solid #ccc;
+z-index: 10;
+max-height: 150px;
+overflow-y: auto;
+display: none;
+}
+
+/* Стили для элементов списка подсказок */
+.suggestion-item {
+padding: 5px;
+cursor: pointer;
+}
+
+.suggestion-item:hover {
+background-color: #f0f0f0;
+}
+</style>
+</head>
+<body>
+<!-- Основной контейнер игры -->
+<div class="game-container">
+<!-- Выбор режима игры -->
+<select class="mode-select" onchange="changeMode(this.value)">
+<option value="football">Футбол</option>
+<option value="movies">Кино</option>
+</select>
+
+<!-- Поле для загрузки TXT-файла -->
+<input type="file" id="txtInput" onchange="loadTxt(event)" accept=".txt" style="margin: 10px 0;">
+
+<!-- Сетка игры -->
+<div class="grid" id="gameGrid"></div>
+
+<!-- Кнопка для проверки всех ответов -->
+<button class="check-button" onclick="checkAnswers()">Проверить все ответы</button>
+
+<!-- Кнопка "Новая игра" (скрыта по умолчанию) -->
+<button class="new-game-button" id="newGameButton" onclick="newGame()" style="display: none;">Новая игра</button>
+</div>
+
+<script>
+// Объект для хранения данных режимов
+let modes = {
+football: { categories: {} },
+movies: { categories: {} }
+};
+let currentHeaders = [];
+let currentRows = [];
+
+// Функция для загрузки и обработки TXT-файла
+function loadTxt(event) {
+const file = event.target.files[0];
+const reader = new FileReader();
+reader.onload = function(e) {
+const lines = e.target.result.split('\n');
+modes.football.categories = {};
+modes.movies.categories = {
+'Жанры': ['комедия', 'фантастика', 'боевик', 'приключения', 'драма', 'триллер'],
+'Актеры': ['дикаприо', 'джоли', 'питт', 'том харди', 'уилл смит', 'хопкинс'],
+'Фильмы': ['аватар', 'титаник', 'гладиатор', 'матрица', 'список шиндлера', 'побег из шоушенка'],
+'Популярный': ['комедия', 'фантастика', 'дикаприо', 'питт', 'аватар', 'титаник'],
+'Зрелищный': ['боевик', 'приключения', 'том харди', 'уилл смит', 'гладиатор', 'матрица'],
+'Награжденный': ['драма', 'хопкинс', 'список шиндлера', 'побег из шоушенка', 'титаник']
+};
+
+// Парсинг строк из файла
+lines.forEach(line => {
+const [player, ...categories] = line.trim().split(' ').map(item => item.toLowerCase());
+if (player && categories.length) {
+categories.forEach(category => {
+if (!modes.football.categories[category]) {
+modes.football.categories[category] = [];
+}
+if (!modes.football.categories[category].includes(player)) {
+modes.football.categories[category].push(player);
+}
+});
+}
+});
+changeMode(document.querySelector('.mode-select').value);
+};
+reader.readAsText(file);
+}
+
+// Функция для перемешивания массива
+function shuffleArray(array) {
+for (let i = array.length - 1; i > 0; i--) {
+const j = Math.floor(Math.random() * (i + 1));
+[array[i], array[j]] = [array[j], array[i]];
+}
+return array;
+}
+
+// Функция проверки, можно ли найти решение с неповторяющимися ответами
+function hasValidSolution(headers, rows, categories) {
+const solutions = [];
+for (let i = 0; i < 3; i++) {
+for (let j = 0; j < 3; j++) {
+const headerCat = headers[j];
+const rowCat = rows[i];
+const common = categories[headerCat].filter(answer => 
+categories[rowCat].includes(answer)
+);
+if (common.length === 0) return false; // Нет общих ответов
+solutions.push(common[0]); // Берем первый общий ответ
+}
+}
+// Проверяем уникальность всех решений
+return new Set(solutions).size === 9;
+}
+
+// Функция выбора случайных категорий с проверкой решений
+function selectRandomCategories(mode) {
+const allCategories = Object.keys(modes[mode].categories);
+let validCombo = false;
+while (!validCombo && allCategories.length >= 6) { // Убедимся, что достаточно категорий
+const shuffled = shuffleArray([...allCategories]);
+currentHeaders = shuffled.slice(0, 3);
+currentRows = shuffled.slice(3, 6).filter(cat => !currentHeaders.includes(cat));
+if (currentRows.length < 3) {
+const remaining = allCategories.filter(cat => !currentHeaders.includes(cat) && !currentRows.includes(cat));
+currentRows.push(...remaining.slice(0, 3 - currentRows.length));
+}
+validCombo = hasValidSolution(currentHeaders, currentRows, modes[mode].categories);
+}
+if (!validCombo) {
+alert('Невозможно найти комбинацию категорий с решением. Загрузите файл с достаточным количеством данных.');
+}
+}
+
+// Функция отрисовки сетки
+function renderGrid(mode) {
+if (!modes[mode] || !Object.keys(modes[mode].categories).length) return;
+const grid = document.getElementById('gameGrid');
+grid.innerHTML = '';
+selectRandomCategories(mode);
+
+grid.appendChild(document.createElement('div')).className = 'cell header';
+currentHeaders.forEach(header => {
+const cell = document.createElement('div');
+cell.className = 'cell header';
+cell.textContent = header;
+grid.appendChild(cell);
+});
+
+currentRows.forEach(row => {
+const rowHeader = document.createElement('div');
+rowHeader.className = 'cell header';
+rowHeader.textContent = row;
+grid.appendChild(rowHeader);
+
+currentHeaders.forEach(() => {
+const cell = document.createElement('div');
+cell.className = 'cell';
+const input = document.createElement('input');
+input.className = 'input-cell';
+input.type = 'text';
+input.addEventListener('input', (e) => handleInput(e, mode));
+const suggestions = document.createElement('div');
+suggestions.className = 'suggestions';
+cell.appendChild(input);
+cell.appendChild(suggestions);
+grid.appendChild(cell);
+});
+});
+document.getElementById('newGameButton').style.display = 'none'; // Скрываем кнопку "Новая игра"
+}
+
+// Функция обработки ввода и подсказок
+function handleInput(event, mode) {
+const input = event.target;
+const value = input.value.toLowerCase().trim();
+const suggestions = input.nextElementSibling;
+suggestions.innerHTML = '';
+
+if (value.length >= 3) {
+const allAnswers = new Set(Object.values(modes[mode].categories).flat());
+const matches = Array.from(allAnswers).filter(answer => 
+answer.toLowerCase().startsWith(value)
+);
+
+matches.forEach(match => {
+const item = document.createElement('div');
+item.className = 'suggestion-item';
+item.textContent = match;
+item.onclick = () => {
+input.value = match;
+suggestions.style.display = 'none';
+checkSingleAnswer(input, mode);
+};
+suggestions.appendChild(item);
+});
+
+suggestions.style.display = matches.length ? 'block' : 'none';
+} else {
+suggestions.style.display = 'none';
+}
+}
+
+// Функция проверки одного ответа
+function checkSingleAnswer(input, mode) {
+const currentMode = modes[mode];
+const cell = input.parentElement;
+const grid = document.getElementById('gameGrid');
+const cellIndex = Array.from(grid.children).indexOf(cell);
+const rowIndex = Math.floor((cellIndex - 4) / 4);
+const colIndex = (cellIndex - 4) % 4 - 1;
+
+if (rowIndex >= 0 && colIndex >= 0) {
+const rowCat = currentRows[rowIndex];
+const colCat = currentHeaders[colIndex];
+const answer = input.value.toLowerCase().trim();
+
+const isInRowCat = currentMode.categories[rowCat].includes(answer);
+const isInColCat = currentMode.categories[colCat].includes(answer);
+
+if (answer) {
+input.style.backgroundColor = isInRowCat && isInColCat ? '#90EE90' : '#FFB6C1';
+} else {
+input.style.backgroundColor = '';
+}
+}
+}
+
+// Функция проверки всех ответов и показа кнопки "Новая игра"
+function checkAnswers() {
+const mode = document.querySelector('.mode-select').value;
+const currentMode = modes[mode];
+const inputs = document.querySelectorAll('.input-cell');
+let correctCount = 0;
+
+inputs.forEach((input, index) => {
+const row = Math.floor(index / 3);
+const col = index % 3;
+const rowCat = currentRows[row];
+const colCat = currentHeaders[col];
+const answer = input.value.toLowerCase().trim();
+
+if (answer) {
+const isInRowCat = currentMode.categories[rowCat].includes(answer);
+const isInColCat = currentMode.categories[colCat].includes(answer);
+
+if (isInRowCat && isInColCat) {
+input.style.backgroundColor = '#90EE90';
+correctCount++;
+} else {
+input.style.backgroundColor = '#FFB6C1';
+}
+}
+});
+
+alert(`Правильных ответов: ${correctCount} из 9`);
+if (correctCount === 9) {
+document.getElementById('newGameButton').style.display = 'block';
+}
+}
+
+// Функция смены режима
+function changeMode(mode) {
+renderGrid(mode);
+}
+
+// Функция начала новой игры
+function newGame() {
+const mode = document.querySelector('.mode-select').value;
+renderGrid(mode);
+}
+</script>
+</body>
+</html>
+```
