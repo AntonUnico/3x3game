@@ -94,9 +94,6 @@ background-color: #f0f0f0;
 <option value="movies">Кино</option>
 </select>
 
-<!-- Поле для загрузки TXT-файла -->
-<input type="file" id="txtInput" onchange="loadTxt(event)" accept=".txt" style="margin: 10px 0;">
-
 <!-- Сетка игры -->
 <div class="grid" id="gameGrid"></div>
 
@@ -117,20 +114,36 @@ let currentHeaders = [];
 let currentRows = [];
 
 // Функция для загрузки и обработки TXT-файла
-function loadTxt(event) {
-const file = event.target.files[0];
-const reader = new FileReader();
-reader.onload = function(e) {
-const lines = e.target.result.split('\n');
-modes.football.categories = {};
-modes.movies.categories = {
-'Жанры': ['комедия', 'фантастика', 'боевик', 'приключения', 'драма', 'триллер'],
-'Актеры': ['дикаприо', 'джоли', 'питт', 'том харди', 'уилл смит', 'хопкинс'],
-'Фильмы': ['аватар', 'титаник', 'гладиатор', 'матрица', 'список шиндлера', 'побег из шоушенка'],
-'Популярный': ['комедия', 'фантастика', 'дикаприо', 'питт', 'аватар', 'титаник'],
-'Зрелищный': ['боевик', 'приключения', 'том харди', 'уилл смит', 'гладиатор', 'матрица'],
-'Награжденный': ['драма', 'хопкинс', 'список шиндлера', 'побег из шоушенка', 'титаник']
-};
+function loadTxtFromServer(event) {
+  fetch('players.txt')
+  .then(response => response.text())
+  .then(data => {
+    const lines = data.split('\n');
+    modes.football.categories = {};
+    lines.forEach(line => {
+      const [player, ...categories] =
+        line.trim().split(' ').map(item =>
+          item.toLowerCase());
+      if (player && categories.length) {
+        categories.forEach(category =>
+          {
+            if (!modes.football.categories[category]) {
+              modes.football.categories[category] = [];
+            }
+            if (!modes.football.categroies[categoru].includes(player)) {
+              modes.football.categories[category].push(player);
+            }
+          });
+      }
+    });
+    changeMode('football');
+  })
+  .catch(error => console.error('Ошибка загрузки файла:', error));
+}
+
+  window.onload = function() {
+    loadTxtFromServer();
+  };
 
 // Парсинг строк из файла
 lines.forEach(line => {
