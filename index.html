@@ -82,22 +82,28 @@ cursor: pointer;
 .suggestion-item:hover {
 background-color: #f0f0f0;
 }
+
+.loading {
+text-align: center;
+padding: 20px;
+}
 </style>
 </head>
 <body>
 <!-- Основной контейнер игры -->
 <div class="game-container">
 <!-- Выбор режима игры -->
-<select class="mode-select" onchange="changeMode(this.value)">
-<option value="football">Футбол</option>
-<option value="movies">Кино</option>
+<select class="mode-select" id="modeSelect" disabled>
+<option value="">Загрузка данных...</option>
 </select>
 
 <!-- Сетка игры -->
-<div class="grid" id="gameGrid"></div>
+<div class="grid" id="gameGrid">
+<div class="loading">Загрузка данных...</div>
+</div>
 
 <!-- Кнопка для проверки всех ответов -->
-<button class="check-button" onclick="checkAnswers()">Проверить все ответы</button>
+<button class="check-button" id="checkButton" disabled>Проверить все ответы</button>
 
 <!-- Кнопка "Новая игра" (скрыта по умолчанию) -->
 <button class="new-game-button" id="newGameButton" onclick="newGame()" style="display: none;">Новая игра</button>
@@ -109,58 +115,86 @@ let modes = {
 football: { categories: {} },
 movies: { categories: {} }
 };
+
 let currentHeaders = [];
 let currentRows = [];
+let isDataLoaded = false;
 
-// Функция для загрузки и обработки TXT-файла
-function loadTxtFromServer(event) {
-  fetch('players.txt')
-  .then(response => response.text())
-  .then(data => {
-    const lines = data.split('\n');
-    modes.football.categories = {};
-    lines.forEach(line => {
-      const [player, ...categories] =
-        line.trim().split(' ').map(item =>
-          item.toLowerCase());
-      if (player && categories.length) {
-        categories.forEach(category =>
-          {
-            if (!modes.football.categories[category]) {
-              modes.football.categories[category] = [];
-            }
-            if (!modes.football.categories[category].includes(player)) {
-              modes.football.categories[category].push(player);
-            }
-          });
-      }
-    });
-    changeMode('football');
-  })
-  .catch(error => console.error('Ошибка загрузки файла:', error));
+// Функция для загрузки данных из файла
+async function loadData(filename, mode) {
+try {
+const response = await fetch(filename);
+if (!response.ok) throw new Error(`Ошибка загрузки ${filename}`);
+const data = await response.text();
+return processData(data, mode);
+} catch (error) {
+console.error('Ошибка загрузки данных:', error);
+return false;
+}
 }
 
-  window.onload = function() {
-    loadTxtFromServer();
-  };
+// Функция обработки данных из файла
+function processData(data, mode) {
+const lines = data.split('\n');
+modes[mode].categories = {};
 
-// Парсинг строк из файла
 lines.forEach(line => {
-const [player, ...categories] = line.trim().split(' ').map(item => item.toLowerCase());
+const trimmed = line.trim();
+if (!trimmed) return;
+
+const [player, ...categories] = trimmed.split(/\s+/).map(item => item.toLowerCase());
 if (player && categories.length) {
 categories.forEach(category => {
-if (!modes.football.categories[category]) {
-modes.football.categories[category] = [];
+if (!modes[mode].categories[category]) {
+modes[mode].categories[category] = [];
 }
-if (!modes.football.categories[category].includes(player)) {
-modes.football.categories[category].push(player);
-}
-});
+if (!modes[mode].categories[category].includes(player)) {
+modes[mode].categories[category].push(player);
 }
 });
-changeMode(document.querySelector('.mode-select').value);
-};
-reader.readAsText(file);
+}
+});
+
+return Object.keys(modes[mode].categories).length > 0;
+}
+
+// Инициализация игры - загрузка всех данных
+async function initializeGame() {
+const modeSelect = document.getElementById('modeSelect');
+
+// Загружаем данные для футбола
+const footballLoaded = await loadData('football.txt', 'football');
+
+// Загружаем данные для кино
+const moviesLoaded = await loadData('movies.txt', 'movies');
+
+if (footballLoaded || moviesLoaded) {
+isDataLoaded = true;
+modeSelect.innerHTML = '';
+
+if (footballLoaded) {
+modeSelect.appendChild(new Option('Футбол', 'football'));
+}
+
+if (moviesLoaded) {
+modeSelect.appendChild(new Option('Кино', 'movies'));
+}
+
+modeSelect.disabled = false;
+document.getElementById('checkButton').disabled = false;
+
+// Выбираем первый доступный режим
+if (footballLoaded) {
+modeSelect.value = 'football';
+changeMode('football');
+} else if (moviesLoaded) {
+modeSelect.value = 'movies';
+changeMode('movies');
+}
+} else {
+document.getElementById('gameGrid').innerHTML = 
+'<div class="loading">Не удалось загрузить данные. Проверьте наличие файлов football.txt и movies.txt</div>';
+}
 }
 
 // Функция для перемешивания массива
@@ -179,14 +213,13 @@ for (let i = 0; i < 3; i++) {
 for (let j = 0; j < 3; j++) {
 const headerCat = headers[j];
 const rowCat = rows[i];
-const common = categories[headerCat].filter(answer => 
+const common = categories[headerCat].filter(answer =>
 categories[rowCat].includes(answer)
 );
-if (common.length === 0) return false; // Нет общих ответов
-solutions.push(common[0]); // Берем первый общий ответ
+if (common.length === 0) return false;
+solutions.push(common[0]);
 }
 }
-// Проверяем уникальность всех решений
 return new Set(solutions).size === 9;
 }
 
@@ -194,29 +227,48 @@ return new Set(solutions).size === 9;
 function selectRandomCategories(mode) {
 const allCategories = Object.keys(modes[mode].categories);
 let validCombo = false;
-while (!validCombo && allCategories.length >= 6) { // Убедимся, что достаточно категорий
+let attempts = 0;
+const maxAttempts = 100;
+
+while (!validCombo && attempts < maxAttempts && allCategories.length >= 6) {
+attempts++;
 const shuffled = shuffleArray([...allCategories]);
 currentHeaders = shuffled.slice(0, 3);
 currentRows = shuffled.slice(3, 6).filter(cat => !currentHeaders.includes(cat));
+
 if (currentRows.length < 3) {
-const remaining = allCategories.filter(cat => !currentHeaders.includes(cat) && !currentRows.includes(cat));
+const remaining = allCategories.filter(cat => 
+!currentHeaders.includes(cat) && !currentRows.includes(cat)
+);
 currentRows.push(...remaining.slice(0, 3 - currentRows.length));
 }
+
 validCombo = hasValidSolution(currentHeaders, currentRows, modes[mode].categories);
 }
-if (!validCombo) {
-alert('Невозможно найти комбинацию категорий с решением. Загрузите файл с достаточным количеством данных.');
+
+if (!validCombo && allCategories.length >= 6) {
+console.warn('Не удалось найти идеальную комбинацию категорий. Используем первую доступную.');
+currentHeaders = allCategories.slice(0, 3);
+currentRows = allCategories.slice(3, 6);
 }
 }
 
 // Функция отрисовки сетки
 function renderGrid(mode) {
-if (!modes[mode] || !Object.keys(modes[mode].categories).length) return;
+if (!isDataLoaded || !modes[mode] || !Object.keys(modes[mode].categories).length) {
+document.getElementById('gameGrid').innerHTML = 
+'<div class="loading">Нет данных для выбранного режима</div>';
+return;
+}
+
 const grid = document.getElementById('gameGrid');
 grid.innerHTML = '';
 selectRandomCategories(mode);
 
+// Пустая ячейка в левом верхнем углу
 grid.appendChild(document.createElement('div')).className = 'cell header';
+
+// Заголовки столбцов
 currentHeaders.forEach(header => {
 const cell = document.createElement('div');
 cell.className = 'cell header';
@@ -224,6 +276,7 @@ cell.textContent = header;
 grid.appendChild(cell);
 });
 
+// Строки с заголовками и полями ввода
 currentRows.forEach(row => {
 const rowHeader = document.createElement('div');
 rowHeader.className = 'cell header';
@@ -244,7 +297,8 @@ cell.appendChild(suggestions);
 grid.appendChild(cell);
 });
 });
-document.getElementById('newGameButton').style.display = 'none'; // Скрываем кнопку "Новая игра"
+
+document.getElementById('newGameButton').style.display = 'none';
 }
 
 // Функция обработки ввода и подсказок
@@ -254,10 +308,10 @@ const value = input.value.toLowerCase().trim();
 const suggestions = input.nextElementSibling;
 suggestions.innerHTML = '';
 
-if (value.length >= 3) {
+if (value.length >= 2) {
 const allAnswers = new Set(Object.values(modes[mode].categories).flat());
-const matches = Array.from(allAnswers).filter(answer => 
-answer.toLowerCase().startsWith(value)
+const matches = Array.from(allAnswers).filter(answer =>
+answer.toLowerCase().includes(value)
 );
 
 matches.forEach(match => {
@@ -292,8 +346,8 @@ const rowCat = currentRows[rowIndex];
 const colCat = currentHeaders[colIndex];
 const answer = input.value.toLowerCase().trim();
 
-const isInRowCat = currentMode.categories[rowCat].includes(answer);
-const isInColCat = currentMode.categories[colCat].includes(answer);
+const isInRowCat = currentMode.categories[rowCat]?.includes(answer);
+const isInColCat = currentMode.categories[colCat]?.includes(answer);
 
 if (answer) {
 input.style.backgroundColor = isInRowCat && isInColCat ? '#90EE90' : '#FFB6C1';
@@ -318,8 +372,8 @@ const colCat = currentHeaders[col];
 const answer = input.value.toLowerCase().trim();
 
 if (answer) {
-const isInRowCat = currentMode.categories[rowCat].includes(answer);
-const isInColCat = currentMode.categories[colCat].includes(answer);
+const isInRowCat = currentMode.categories[rowCat]?.includes(answer);
+const isInColCat = currentMode.categories[colCat]?.includes(answer);
 
 if (isInRowCat && isInColCat) {
 input.style.backgroundColor = '#90EE90';
@@ -338,7 +392,9 @@ document.getElementById('newGameButton').style.display = 'block';
 
 // Функция смены режима
 function changeMode(mode) {
+if (isDataLoaded) {
 renderGrid(mode);
+}
 }
 
 // Функция начала новой игры
@@ -346,6 +402,9 @@ function newGame() {
 const mode = document.querySelector('.mode-select').value;
 renderGrid(mode);
 }
+
+// Инициализация игры при загрузке страницы
+window.onload = initializeGame;
 </script>
 </body>
 </html>
